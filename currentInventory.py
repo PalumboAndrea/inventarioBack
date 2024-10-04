@@ -36,14 +36,31 @@ def add_inventory_item(conn, new_item):
             return jsonify({'error': 'Il campo "quantità" deve essere un numero.'}), 400
 
         with conn.cursor() as cursor:
-            cursor.execute(
-                "INSERT INTO current_inventory (articolo, quantità) VALUES (%s, %s);",
-                (articolo, quantità)
-            )
+            # Verifica se l'articolo esiste già
+            cursor.execute("SELECT quantità FROM current_inventory WHERE articolo = %s;", (articolo,))
+            existing_item = cursor.fetchone()
+
+            if existing_item:
+                # Se l'articolo esiste, somma la quantità
+                nuova_quantità = existing_item[0] + quantità
+                cursor.execute(
+                    "UPDATE current_inventory SET quantità = %s WHERE articolo = %s;",
+                    (nuova_quantità, articolo)
+                )
+                message = f'Quantità di {articolo} aggiornata a {nuova_quantità}.'
+            else:
+                # Se l'articolo non esiste, inseriscilo
+                cursor.execute(
+                    "INSERT INTO current_inventory (articolo, quantità) VALUES (%s, %s);",
+                    (articolo, quantità)
+                )
+                message = f'Articolo {articolo} aggiunto con successo.'
+
             conn.commit()
-            return jsonify({'message': 'Articolo aggiunto con successo'}), 201
+            return jsonify({'message': message}), 201
     except Exception as error:
         return jsonify({'error': str(error)}), 500
+
 
 def delete_inventory_item(conn, articolo):
     try:

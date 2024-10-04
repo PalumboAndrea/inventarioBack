@@ -36,14 +36,31 @@ def add_shoppingList_item(conn, new_item):
             return jsonify({'error': 'Il campo "quantità" deve essere un numero.'}), 400
 
         with conn.cursor() as cursor:
-            cursor.execute(
-                "INSERT INTO shopping_list (articolo, quantità) VALUES (%s, %s);",
-                (articolo, quantità)
-            )
-            conn.commit()
-            return jsonify({'message': 'Articolo aggiunto con successo'}), 201
+            # Controlla se l'articolo esiste già nella shopping_list
+            cursor.execute("SELECT quantità FROM shopping_list WHERE articolo = %s;", (articolo,))
+            result = cursor.fetchone()
+
+            if result:
+                # Se l'articolo esiste, somma la nuova quantità alla quantità esistente
+                nuova_quantità = result[0] + quantità
+                cursor.execute(
+                    "UPDATE shopping_list SET quantità = %s WHERE articolo = %s;",
+                    (nuova_quantità, articolo)
+                )
+                conn.commit()
+                return jsonify({'message': 'Quantità aggiornata con successo'}), 200
+            else:
+                # Se l'articolo non esiste, aggiungi un nuovo articolo
+                cursor.execute(
+                    "INSERT INTO shopping_list (articolo, quantità) VALUES (%s, %s);",
+                    (articolo, quantità)
+                )
+                conn.commit()
+                return jsonify({'message': 'Articolo aggiunto con successo'}), 201
+
     except Exception as error:
         return jsonify({'error': str(error)}), 500
+
 
 def delete_shoppingList_item(conn, articolo):
     try:
