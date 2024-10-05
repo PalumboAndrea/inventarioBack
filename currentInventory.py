@@ -61,6 +61,27 @@ def add_inventory_item(conn, new_item):
     except Exception as error:
         return jsonify({'error': str(error)}), 500
 
+def update_inventory_item(conn, updated_item):
+    """ Aggiorna un articolo esistente nell'inventario. """
+    try:
+        articolo = updated_item.get('articolo')
+        quantità = updated_item.get('quantità')
+
+        if not articolo or not isinstance(articolo, str):
+            return jsonify({'error': 'Il campo "articolo" deve essere una stringa e non può essere vuoto.'}), 400
+
+        if quantità is None or not isinstance(quantità, (int, float)):
+            return jsonify({'error': 'Il campo "quantità" deve essere un numero.'}), 400
+
+        with conn.cursor() as cursor:
+            cursor.execute("UPDATE current_inventory SET quantità = %s WHERE articolo = %s;", (quantità, articolo))
+            if cursor.rowcount == 0:
+                return jsonify({'error': 'Articolo non trovato per l\'aggiornamento.'}), 404
+
+            conn.commit()
+            return jsonify({'message': f'Articolo {articolo} aggiornato con successo.'}), 200
+    except Exception as error:
+        return jsonify({'error': str(error)}), 500
 
 def delete_inventory_item(conn, articolo):
     try:
