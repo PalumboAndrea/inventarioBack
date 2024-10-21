@@ -31,14 +31,19 @@ def get_mustBeItems(conn):
             colnames = [desc[0] for desc in cursor.description]
             inventory = [dict(zip(colnames, row)) for row in rows]
             
-            # Cicla su ogni articolo per verificare se deve essere aggiunto alla shopping list
+            # Cicla su ogni articolo per verificare se deve essere aggiunto o rimosso dalla shopping list
             for item in inventory:
                 articolo = item['articolo']
                 quantità = item['quantità']
                 inventory_quantità = item['inventory_quantità']
                 
-                # Se la quantità nell'inventario è inferiore alla quantità richiesta in mustbe
-                if inventory_quantità < quantità:
+                if inventory_quantità >= quantità:
+                    # Se la quantità in inventario è maggiore o uguale a quella richiesta in mustbe,
+                    # rimuoviamo l'articolo dalla shopping list
+                    cursor.execute("DELETE FROM shopping_list WHERE articolo = %s;", (articolo,))
+                    conn.commit()
+                else:
+                    # Se la quantità nell'inventario è inferiore alla quantità richiesta in mustbe
                     quantità_mancante = quantità - inventory_quantità
                     
                     # Controlla se l'articolo è già nella shopping_list
@@ -46,9 +51,8 @@ def get_mustBeItems(conn):
                     result = cursor.fetchone()
 
                     if result:
-                        # Se esiste già nella shopping_list
+                        # Se esiste già nella shopping_list, aggiorna la quantità se necessario
                         if result[0] < quantità_mancante:
-                            # Se la quantità esistente è minore della quantità mancante, aggiorna la shopping list
                             nuova_quantità = result[0] + quantità_mancante
                             cursor.execute(
                                 "UPDATE shopping_list SET quantità = %s WHERE articolo = %s;",
@@ -65,6 +69,7 @@ def get_mustBeItems(conn):
             return jsonify(inventory)
     except Exception as error:
         return jsonify({'error': str(error)}), 500
+
 
 def add_mustBe_item(conn, new_item):
     try:
