@@ -120,6 +120,38 @@ def api_delete_mustBe_item(articolo):
         return response
     return jsonify({'error': 'Connection to database failed'}), 500
 
+@app.route('/api/add_item', methods=['POST'])
+def add_item():
+    config = load_config()
+    conn = connect(config)
+    data = request.get_json()
+    articolo = data['articolo']
+    quantità = data['quantità']
+    unità_misura = data['unità_misura']
+    
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                INSERT INTO added_items (articolo, quantità, unità_misura) 
+                VALUES (%s, %s, %s);
+            """, (articolo, quantità, unità_misura))
+            conn.commit()
+        return jsonify({'message': 'Articolo aggiunto con successo!'}), 201
+    except Exception as error:
+        return jsonify({'error': str(error)}), 500
+
+@app.route('/api/remove_item/<articolo>', methods=['DELETE'])
+def remove_item(articolo):
+    config = load_config()
+    conn = connect(config)
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("DELETE FROM added_items WHERE articolo = %s;", (articolo,))
+            conn.commit()
+        return jsonify({'message': 'Articolo rimosso da added_items!'}), 200
+    except Exception as error:
+        return jsonify({'error': str(error)}), 500
+
 
 if __name__ == '__main__':
     app.run(debug=True)

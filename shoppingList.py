@@ -1,6 +1,7 @@
 import psycopg2
 from flask import jsonify
 from config import load_config
+from mustBe import sync_shopping_list
 
 def connect(config):
     """ Connect to the PostgreSQL database server """
@@ -13,15 +14,35 @@ def connect(config):
         print(error)
         return None
 
+# def get_shoppingList(conn):
+#     try:
+#         with conn.cursor() as cursor:
+#             cursor.execute("SELECT * FROM shopping_list;")
+#             rows = cursor.fetchall()
+#             colnames = [desc[0] for desc in cursor.description]
+#             inventory = [dict(zip(colnames, row)) for row in rows]
+#             return jsonify(inventory)
+#     except Exception as error:
+#         return jsonify({'error': str(error)}), 500
+    
 def get_shoppingList(conn):
     try:
+        # Assicura che la lista della spesa sia aggiornata
+        sync_shopping_list(conn)
+        
+        # Esegui la query e recupera i dati
         with conn.cursor() as cursor:
             cursor.execute("SELECT * FROM shopping_list;")
             rows = cursor.fetchall()
             colnames = [desc[0] for desc in cursor.description]
-            inventory = [dict(zip(colnames, row)) for row in rows]
-            return jsonify(inventory)
+            
+            # Trasforma i risultati in una lista di dizionari
+            shopping_list = [dict(zip(colnames, row)) for row in rows]
+            
+            # Restituisci i dati in formato JSON
+            return jsonify(shopping_list), 200
     except Exception as error:
+        # Restituisci un errore JSON in caso di eccezione
         return jsonify({'error': str(error)}), 500
 
 def add_shoppingList_item(conn, new_item):
@@ -61,7 +82,6 @@ def add_shoppingList_item(conn, new_item):
 
     except Exception as error:
         return jsonify({'error': str(error)}), 500
-
 
 def delete_shoppingList_item(conn, articolo):
     try:

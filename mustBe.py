@@ -12,15 +12,16 @@ def connect(config):
     except (psycopg2.DatabaseError, Exception) as error:
         print(error)
         return None
-
+    
 def get_mustBeItems(conn):
     try:
+        sync_shopping_list(conn)  # Aggiorna la lista della spesa
         with conn.cursor() as cursor:
             cursor.execute("""
                 SELECT 
                     mustbe.articolo, 
                     mustbe.quantità,
-                    mustbe.unità_misura,  -- Aggiungi il campo unità_misura
+                    mustbe.unità_misura,
                     COALESCE(current_inventory.quantità, 0) AS inventory_quantità,
                     (COALESCE(current_inventory.quantità, 0) >= mustbe.quantità) AS inCurrentInventory
                 FROM mustbe
@@ -30,39 +31,9 @@ def get_mustBeItems(conn):
             rows = cursor.fetchall()
             colnames = [desc[0] for desc in cursor.description]
             inventory = [dict(zip(colnames, row)) for row in rows]
-
-            # Cicla su ogni articolo per verificare se deve essere aggiunto o rimosso dalla shopping list
-            for item in inventory:
-                articolo = item['articolo']
-                quantità = item['quantità']
-                inventory_quantità = item['inventory_quantità']
-                
-                if inventory_quantità >= quantità:
-                    cursor.execute("DELETE FROM shopping_list WHERE articolo = %s;", (articolo,))
-                    conn.commit()
-                else:
-                    quantità_mancante = quantità - inventory_quantità
-                    cursor.execute("SELECT quantità FROM shopping_list WHERE articolo = %s;", (articolo,))
-                    result = cursor.fetchone()
-
-                    if result:
-                        if result[0] < quantità_mancante:
-                            nuova_quantità = result[0] + quantità_mancante
-                            cursor.execute(
-                                "UPDATE shopping_list SET quantità = %s WHERE articolo = %s;",
-                                (nuova_quantità, articolo)
-                            )
-                    else:
-                        cursor.execute(
-                            "INSERT INTO shopping_list (articolo, quantità) VALUES (%s, %s);",
-                            (articolo, quantità_mancante)
-                        )
-                    conn.commit()
-
             return jsonify(inventory)
     except Exception as error:
         return jsonify({'error': str(error)}), 500
-
 
 def add_mustBe_item(conn, new_item):
     try:
@@ -123,7 +94,6 @@ def add_mustBe_item(conn, new_item):
     except Exception as error:
         return jsonify({'error': str(error)}), 500
 
-
 def get_mustBeItems(conn):
     try:
         with conn.cursor() as cursor:
@@ -175,7 +145,6 @@ def get_mustBeItems(conn):
     except Exception as error:
         return jsonify({'error': str(error)}), 500
 
-
 def update_mustBe_item(conn, articolo, updated_item):
     try:
         quantità = updated_item.get('quantità')
@@ -224,3 +193,55 @@ def delete_mustBe_item(conn, articolo):
             return jsonify({'message': f'Articolo {articolo} eliminato con successo'}), 200
     except Exception as error:
         return jsonify({'error': str(error)}), 500
+    
+def sync_shopping_list(conn):
+    """Sincronizza la lista della spesa in base agli articoli di 'mustbe' e 'added_items'."""
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT 
+                    mustbe.articolo, 
+                    mustbe.quantità,
+                    mustbe.unità_misura,
+                    COALESCE(current_inventory.quantità, 0) AS inventory_quantità
+                FROM mustbe
+                LEFT JOIN current_inventory 
+                ON mustbe.articolo = current_inventory.articolo;
+            """)
+            rows = cursor.fetchall()
+            for row in rows:
+                articolo, quantità, unità_misura, inventory_quantità = row
+                if inventory_quantità >= quantità:
+                    cursor.execute("DELETE FROM shopping_list WHERE articolo = %s;", (articolo,))
+                else:
+                    quantità_mancante = quantità - inventory_quantità
+                    cursor.execute("SELECT quantità FROM shopping_list WHERE articolo = %s;", (articolo,))
+                    result = cursor.fetchone()
+                    if result:
+                        if result[0] < quantità_mancante:
+                            nuova_quantità = result[0] + quantità_mancante
+                            cursor.execute(
+                                "UPDATE shopping_list SET quantità = %s WHERE articolo = %s;",
+                                (nuova_quantità, articolo)
+                            )
+                    else:
+                        cursor.execute(
+                            "INSERT INTO shopping_list (articolo, quantità, unità_misura) VALUES (%s, %s, %s);",
+                            (articolo, quantità_mancante, unità_misura)
+                        )
+
+            # Sincronizzazione per gli articoli nella tabella added_items
+            cursor.execute("SELECT * FROM added_items;")
+            added_rows = cursor.fetchall()
+            for added_row in added_rows:
+                articolo, quantità, unità_misura = added_row[0], added_row[1], added_row[2]
+                cursor.execute(
+                    "INSERT INTO shopping_list (articolo, quantità, unità_misura) VALUES (%s, %s, %s) "
+                    "ON CONFLICT (articolo) DO UPDATE SET quantità = shopping_list.quantità + EXCLUDED.quantità;",
+                    (articolo, quantità, unità_misura)
+                )
+
+            conn.commit()
+    except Exception as error:
+        print(f'Errore nella sincronizzazione della shopping list: {error}')
+
