@@ -28,12 +28,16 @@ def add_inventory_item(conn, new_item):
     try:
         articolo = new_item.get('articolo')
         quantità = new_item.get('quantità')
+        unità_misura = new_item.get('unità_misura')  # Recupera l'unità di misura
 
         if not articolo or not isinstance(articolo, str):
             return jsonify({'error': 'Il campo "articolo" deve essere una stringa e non può essere vuoto.'}), 400
 
         if quantità is None or not isinstance(quantità, (int, float)):
             return jsonify({'error': 'Il campo "quantità" deve essere un numero.'}), 400
+
+        if not unità_misura or not isinstance(unità_misura, str):
+            return jsonify({'error': 'Il campo "unità_misura" deve essere una stringa e non può essere vuoto.'}), 400
 
         with conn.cursor() as cursor:
             # Verifica se l'articolo esiste già
@@ -49,10 +53,10 @@ def add_inventory_item(conn, new_item):
                 )
                 message = f'Quantità di {articolo} aggiornata a {nuova_quantità}.'
             else:
-                # Se l'articolo non esiste, inseriscilo
+                # Se l'articolo non esiste, inseriscilo con l'unità di misura
                 cursor.execute(
-                    "INSERT INTO current_inventory (articolo, quantità) VALUES (%s, %s);",
-                    (articolo, quantità)
+                    "INSERT INTO current_inventory (articolo, quantità, unità_misura) VALUES (%s, %s, %s);",
+                    (articolo, quantità, unità_misura)
                 )
                 message = f'Articolo {articolo} aggiunto con successo.'
 
@@ -61,11 +65,12 @@ def add_inventory_item(conn, new_item):
     except Exception as error:
         return jsonify({'error': str(error)}), 500
 
+
 def update_inventory_item(conn, updated_item):
-    """ Aggiorna un articolo esistente nell'inventario. """
     try:
         articolo = updated_item.get('articolo')
         quantità = updated_item.get('quantità')
+        unità_misura = updated_item.get('unità_misura')  # Aggiungi il campo unità_misura
 
         if not articolo or not isinstance(articolo, str):
             return jsonify({'error': 'Il campo "articolo" deve essere una stringa e non può essere vuoto.'}), 400
@@ -73,8 +78,14 @@ def update_inventory_item(conn, updated_item):
         if quantità is None or not isinstance(quantità, (int, float)):
             return jsonify({'error': 'Il campo "quantità" deve essere un numero.'}), 400
 
+        if not unità_misura or not isinstance(unità_misura, str):
+            return jsonify({'error': 'Il campo "unità_misura" deve essere una stringa e non può essere vuoto.'}), 400
+
         with conn.cursor() as cursor:
-            cursor.execute("UPDATE current_inventory SET quantità = %s WHERE articolo = %s;", (quantità, articolo))
+            cursor.execute(
+                "UPDATE current_inventory SET quantità = %s, unità_misura = %s WHERE articolo = %s;",
+                (quantità, unità_misura, articolo)
+            )
             if cursor.rowcount == 0:
                 return jsonify({'error': 'Articolo non trovato per l\'aggiornamento.'}), 404
 
@@ -82,6 +93,7 @@ def update_inventory_item(conn, updated_item):
             return jsonify({'message': f'Articolo {articolo} aggiornato con successo.'}), 200
     except Exception as error:
         return jsonify({'error': str(error)}), 500
+
 
 def delete_inventory_item(conn, articolo):
     try:

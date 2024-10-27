@@ -1,8 +1,8 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from currentInventory import connect, get_inventory, add_inventory_item, delete_inventory_item, update_inventory_item
-from shoppingList import connect, get_shoppingList, add_shoppingList_item, delete_shoppingList_item
-from mustBe import connect, get_mustBeItems, add_mustBe_item, delete_mustBe_item, update_mustBe_item
+from shoppingList import connect as connect_shopping, get_shoppingList, add_shoppingList_item, delete_shoppingList_item
+from mustBe import connect as connect_mustbe, get_mustBeItems, add_mustBe_item, delete_mustBe_item, update_mustBe_item
 from config import load_config
 
 app = Flask(__name__)

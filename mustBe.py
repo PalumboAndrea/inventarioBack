@@ -16,11 +16,11 @@ def connect(config):
 def get_mustBeItems(conn):
     try:
         with conn.cursor() as cursor:
-            # LEFT JOIN tra mustbe e current_inventory per ottenere la quantità disponibile
             cursor.execute("""
                 SELECT 
                     mustbe.articolo, 
                     mustbe.quantità,
+                    mustbe.unità_misura,  -- Aggiungi il campo unità_misura
                     COALESCE(current_inventory.quantità, 0) AS inventory_quantità,
                     (COALESCE(current_inventory.quantità, 0) >= mustbe.quantità) AS inCurrentInventory
                 FROM mustbe
@@ -30,7 +30,7 @@ def get_mustBeItems(conn):
             rows = cursor.fetchall()
             colnames = [desc[0] for desc in cursor.description]
             inventory = [dict(zip(colnames, row)) for row in rows]
-            
+
             # Cicla su ogni articolo per verificare se deve essere aggiunto o rimosso dalla shopping list
             for item in inventory:
                 articolo = item['articolo']
@@ -38,20 +38,14 @@ def get_mustBeItems(conn):
                 inventory_quantità = item['inventory_quantità']
                 
                 if inventory_quantità >= quantità:
-                    # Se la quantità in inventario è maggiore o uguale a quella richiesta in mustbe,
-                    # rimuoviamo l'articolo dalla shopping list
                     cursor.execute("DELETE FROM shopping_list WHERE articolo = %s;", (articolo,))
                     conn.commit()
                 else:
-                    # Se la quantità nell'inventario è inferiore alla quantità richiesta in mustbe
                     quantità_mancante = quantità - inventory_quantità
-                    
-                    # Controlla se l'articolo è già nella shopping_list
                     cursor.execute("SELECT quantità FROM shopping_list WHERE articolo = %s;", (articolo,))
                     result = cursor.fetchone()
 
                     if result:
-                        # Se esiste già nella shopping_list, aggiorna la quantità se necessario
                         if result[0] < quantità_mancante:
                             nuova_quantità = result[0] + quantità_mancante
                             cursor.execute(
@@ -59,7 +53,6 @@ def get_mustBeItems(conn):
                                 (nuova_quantità, articolo)
                             )
                     else:
-                        # Se non esiste, inserisci il nuovo articolo nella shopping_list
                         cursor.execute(
                             "INSERT INTO shopping_list (articolo, quantità) VALUES (%s, %s);",
                             (articolo, quantità_mancante)
@@ -75,6 +68,7 @@ def add_mustBe_item(conn, new_item):
     try:
         articolo = new_item.get('articolo')
         quantità = new_item.get('quantità')
+        unità_misura = new_item.get('unità_misura')  # Aggiungi il campo unità_misura
 
         if not articolo or not isinstance(articolo, str):
             return jsonify({'error': 'Il campo "articolo" deve essere una stringa e non può essere vuoto.'}), 400
@@ -82,48 +76,44 @@ def add_mustBe_item(conn, new_item):
         if quantità is None or not isinstance(quantità, (int, float)):
             return jsonify({'error': 'Il campo "quantità" deve essere un numero.'}), 400
 
+        if not unità_misura or not isinstance(unità_misura, str):
+            return jsonify({'error': 'Il campo "unità_misura" deve essere una stringa e non può essere vuoto.'}), 400
+
         with conn.cursor() as cursor:
-            # Controlla se l'articolo è presente nell'inventario
             cursor.execute("SELECT 1 FROM current_inventory WHERE articolo = %s;", (articolo,))
             item_in_inventory = cursor.fetchone()
-            
-            # Imposta il valore di inCurrentInventory
             in_current_inventory = True if item_in_inventory else False
 
-            # Controlla se l'articolo esiste già nella lista mustBe
             cursor.execute("SELECT quantità FROM mustbe WHERE articolo = %s;", (articolo,))
             result = cursor.fetchone()
 
             if result:
-                # Se l'articolo esiste, somma la nuova quantità alla quantità esistente
                 nuova_quantità = result[0] + quantità
                 cursor.execute(
                     """
                     UPDATE mustbe 
-                    SET quantità = %s, inCurrentInventory = %s
+                    SET quantità = %s, inCurrentInventory = %s, unità_misura = %s  -- Aggiungi il campo unità_misura
                     WHERE articolo = %s;
                     """,
-                    (nuova_quantità, in_current_inventory, articolo)
+                    (nuova_quantità, in_current_inventory, unità_misura, articolo)
                 )
                 conn.commit()
                 message = 'Quantità aggiornata con successo'
             else:
-                # Se l'articolo non esiste, aggiungi un nuovo articolo a mustBe
                 cursor.execute(
                     """
-                    INSERT INTO mustbe (articolo, quantità, inCurrentInventory) 
-                    VALUES (%s, %s, %s);
+                    INSERT INTO mustbe (articolo, quantità, inCurrentInventory, unità_misura) 
+                    VALUES (%s, %s, %s, %s);
                     """,
-                    (articolo, quantità, in_current_inventory)
+                    (articolo, quantità, in_current_inventory, unità_misura)  # Aggiungi il campo unità_misura
                 )
                 conn.commit()
                 message = 'Articolo aggiunto con successo'
 
             if not item_in_inventory:
-                # Se l'articolo non è nell'inventario, aggiungilo alla shopping list
                 cursor.execute(
-                    "INSERT INTO shopping_list (articolo, quantità) VALUES (%s, %s);",
-                    (articolo, quantità)
+                    "INSERT INTO shopping_list (articolo, quantità, unità_misura) VALUES (%s, %s, %s);",
+                    (articolo, quantità, unità_misura)  # Assicurati di passare unità_misura qui
                 )
                 conn.commit()
                 message += ' e aggiunto alla shopping list.'
@@ -133,48 +123,96 @@ def add_mustBe_item(conn, new_item):
     except Exception as error:
         return jsonify({'error': str(error)}), 500
 
+
+def get_mustBeItems(conn):
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT 
+                    mustbe.articolo, 
+                    mustbe.quantità,
+                    mustbe.unità_misura,  -- Aggiungi il campo unità_misura
+                    COALESCE(current_inventory.quantità, 0) AS inventory_quantità,
+                    (COALESCE(current_inventory.quantità, 0) >= mustbe.quantità) AS inCurrentInventory
+                FROM mustbe
+                LEFT JOIN current_inventory 
+                ON mustbe.articolo = current_inventory.articolo;
+            """)
+            rows = cursor.fetchall()
+            colnames = [desc[0] for desc in cursor.description]
+            inventory = [dict(zip(colnames, row)) for row in rows]
+
+            # Cicla su ogni articolo per verificare se deve essere aggiunto o rimosso dalla shopping list
+            for item in inventory:
+                articolo = item['articolo']
+                quantità = item['quantità']
+                unità_misura = item['unità_misura']  # Aggiungi unità_misura
+                inventory_quantità = item['inventory_quantità']
+                
+                if inventory_quantità >= quantità:
+                    cursor.execute("DELETE FROM shopping_list WHERE articolo = %s;", (articolo,))
+                    conn.commit()
+                else:
+                    quantità_mancante = quantità - inventory_quantità
+                    cursor.execute("SELECT quantità FROM shopping_list WHERE articolo = %s;", (articolo,))
+                    result = cursor.fetchone()
+
+                    if result:
+                        if result[0] < quantità_mancante:
+                            nuova_quantità = result[0] + quantità_mancante
+                            cursor.execute(
+                                "UPDATE shopping_list SET quantità = %s WHERE articolo = %s;",
+                                (nuova_quantità, articolo)
+                            )
+                    else:
+                        cursor.execute(
+                            "INSERT INTO shopping_list (articolo, quantità, unità_misura) VALUES (%s, %s, %s);",
+                            (articolo, quantità_mancante, unità_misura)  # Aggiungi unità_misura qui
+                        )
+                    conn.commit()
+
+            return jsonify(inventory)
+    except Exception as error:
+        return jsonify({'error': str(error)}), 500
+
+
 def update_mustBe_item(conn, articolo, updated_item):
     try:
         quantità = updated_item.get('quantità')
+        unità_misura = updated_item.get('unità_misura')  # Aggiungi il campo unità_misura
 
         if quantità is None or not isinstance(quantità, (int, float)):
             return jsonify({'error': 'Il campo "quantità" deve essere un numero.'}), 400
 
         with conn.cursor() as cursor:
-            # Controlla se l'articolo esiste già nella lista mustBe
             cursor.execute("SELECT quantità FROM mustbe WHERE articolo = %s;", (articolo,))
             result = cursor.fetchone()
 
             if not result:
                 return jsonify({'error': f'Articolo {articolo} non trovato nella lista mustBe.'}), 404
 
-            # Quantità attuale in mustbe
             quantità_attuale = result[0]
 
-            # Controlla se l'articolo è presente nell'inventario
             cursor.execute("SELECT 1 FROM current_inventory WHERE articolo = %s;", (articolo,))
             item_in_inventory = cursor.fetchone()
             in_current_inventory = True if item_in_inventory else False
 
-            # Rimuovi dallla shopping_list se la nuova quantità è inferiore alla quantità attuale in inventario
             if quantità < quantità_attuale:
                 cursor.execute("DELETE FROM shopping_list WHERE articolo = %s;", (articolo,))
 
-            # Aggiorna la quantità dell'articolo
             cursor.execute(
                 """
                 UPDATE mustbe 
-                SET quantità = %s, inCurrentInventory = %s
+                SET quantità = %s, inCurrentInventory = %s, unità_misura = %s  -- Aggiungi il campo unità_misura
                 WHERE articolo = %s;
                 """,
-                (quantità, in_current_inventory, articolo)
+                (quantità, in_current_inventory, unità_misura, articolo)  # Aggiungi il campo unità_misura
             )
             conn.commit()
             return jsonify({'message': f'Articolo {articolo} aggiornato con successo'}), 200
 
     except Exception as error:
         return jsonify({'error': str(error)}), 500
-
 
 def delete_mustBe_item(conn, articolo):
     try:
